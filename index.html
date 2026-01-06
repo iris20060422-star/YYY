@@ -1,0 +1,638 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Calendar, 
+  Wallet, 
+  Briefcase, 
+  Gift, 
+  Camera, 
+  Plus, 
+  Calculator, 
+  ChevronLeft, 
+  X,
+  CheckCircle2, 
+  Circle,
+  MapPin,
+  ShoppingBag,
+  Edit2,
+  Trash2,
+  Clock,
+  Type,
+  CalendarDays,
+  Settings,
+  Hash,
+  Layout,
+  Receipt,
+  Image as ImageIcon,
+  ExternalLink,
+  Link as LinkIcon,
+  FileText,
+  User,
+  Users,
+  CheckCircle,
+  AlertCircle,
+  Divide,
+  Minus,
+  Equal,
+  Delete
+} from 'lucide-react';
+
+// --- 常數與配色 ---
+const COLORS = {
+  bg: '#bfb5a2',
+  primary: '#7e6d5f',
+  text: '#3C2F2F',
+  white: '#F7F9EA',
+};
+
+// 輔助函式：格式化日期
+const formatDate = (date) => {
+  const d = new Date(date);
+  const weekDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  return {
+    full: `${d.getFullYear()}-${month}-${day}`,
+    year: d.getFullYear().toString(),
+    month: month,
+    day: day,
+    week: weekDays[d.getDay()]
+  };
+};
+
+// 輔助函式：確保網址格式正確，解決無法跳轉問題
+const ensureAbsoluteUrl = (url) => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+};
+
+const INITIAL_START_DATE = '2026-01-12';
+const INITIAL_DURATION = 7;
+
+const generateDateList = (startStr, count) => {
+  const list = [];
+  const start = new Date(startStr);
+  for (let i = 0; i < count; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    list.push(formatDate(d));
+  }
+  return list;
+};
+
+const INITIAL_ITINERARY = [
+  { id: 1, date: '2026-01-12', time: '09:00', title: '仁川機場抵達', location: 'Incheon Airport', link: '', note: '記得出關後先去領 SIM 卡' },
+  { id: 2, date: '2026-01-12', time: '11:30', title: '聖水洞 咖啡廳巡禮', location: 'Seongsu-dong', link: 'www.google.com/maps', note: '這家店的維也納咖啡很有名' },
+];
+
+const INITIAL_PHOTOS = [
+  { id: 1, url: 'https://images.unsplash.com/photo-1538669715515-5c3758c07ba9?q=80&w=800', note: '首爾塔遠眺' },
+  { id: 2, url: 'https://images.unsplash.com/photo-1517154421773-0529f29ea451?q=80&w=800', note: '弘大街頭' }
+];
+
+const INITIAL_BUDGET = [
+  { id: 1, date: '2026-01-12', text: '機場巴士', krw: 17000, twd: 408, payer: '小明', split: 1, details: '小明付現金', isPaid: true },
+  { id: 2, date: '2026-01-12', text: '晚餐烤肉', krw: 60000, twd: 1440, payer: '小美', split: 2, details: '小美吃了500元，小明吃了940元', isPaid: false },
+];
+
+const safeEvaluate = (expression) => {
+  if (!expression) return 0;
+  try {
+    const sanitized = expression.toString().replace(/[^-0.024\d/*+.]/g, '');
+    const validExpr = sanitized.replace(/[/*+-]+$/, '');
+    if (!validExpr) return 0;
+    const result = new Function(`return ${validExpr}`)();
+    return isFinite(result) ? result : 0;
+  } catch (e) {
+    return 0;
+  }
+};
+
+// --- 子組件：行程編輯彈窗 ---
+const EditItemModal = ({ isOpen, onClose, onSave, onDelete, initialData, availableDates }) => {
+  const [formData, setFormData] = useState({ date: '', time: '', title: '', location: '', link: '', note: '' });
+  
+  useEffect(() => {
+    if (initialData) {
+      setFormData({ ...initialData, link: initialData.link || '', note: initialData.note || '' });
+    } else {
+      setFormData({ date: availableDates[0]?.full || '', time: '12:00', title: '', location: '', link: '', note: '' });
+    }
+  }, [initialData, isOpen, availableDates]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[60] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-[#bfb5a2] rounded-3xl p-8 shadow-2xl space-y-5 border border-[#7e6d5f]/20 max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex justify-between items-center border-b border-[#7e6d5f]/20 pb-4">
+          <h3 className="text-2xl font-black text-[#3C2F2F] tracking-tighter uppercase">{initialData?.id ? '編輯行程項目' : '新增行程項目'}</h3>
+          <button onClick={onClose} className="p-2 bg-[#7e6d5f] rounded-full text-white"><X size={20} /></button>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><CalendarDays size={12} /> 日期</label>
+            <select className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})}>
+              {availableDates.map(d => <option key={d.full} value={d.full}>{d.year}/{d.month}/{d.day} ({d.week})</option>)}
+            </select>
+          </div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><Clock size={12} /> 時間</label><input type="time" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none" value={formData.time} onChange={(e) => setFormData({...formData, time: e.target.value})} /></div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><Type size={12} /> 行程標題</label><input type="text" placeholder="例如：景福宮巡禮" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none" value={formData.title} onChange={(e) => setFormData({...formData, title: e.target.value})} /></div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><MapPin size={12} /> 地點</label><input type="text" placeholder="例如：首爾特別市鐘路區" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none" value={formData.location} onChange={(e) => setFormData({...formData, location: e.target.value})} /></div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><LinkIcon size={12} /> 相關連結 (網址)</label><input type="url" placeholder="google.com" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none" value={formData.link} onChange={(e) => setFormData({...formData, link: e.target.value})} /></div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><FileText size={12} /> 詳細備註</label>
+            <textarea rows="3" placeholder="記錄一些細節..." className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-lg font-bold text-[#3C2F2F] outline-none resize-none" value={formData.note} onChange={(e) => setFormData({...formData, note: e.target.value})} />
+          </div>
+        </div>
+        <div className="pt-4 space-y-3">
+          <button onClick={() => onSave(formData)} className="w-full py-4 bg-[#7e6d5f] text-white rounded-2xl font-black text-lg shadow-lg">保存規劃內容</button>
+          {initialData?.id && <button onClick={() => onDelete(initialData.id)} className="w-full py-2 text-[#7e6d5f] font-bold text-xs flex items-center justify-center gap-1 opacity-60"><Trash2 size={12} /> 移除此項行程</button>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 子組件：收支編輯彈窗 ---
+const EditBudgetModal = ({ isOpen, onClose, onSave, onDelete, initialData, currentAmountKRW, availableDates, defaultDate }) => {
+  const [formData, setFormData] = useState({ date: '', text: '', krw: 0, payer: '', split: 1, details: '', isPaid: false });
+
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        date: initialData.date || defaultDate,
+        text: initialData.text,
+        krw: initialData.krw,
+        payer: initialData.payer || '',
+        split: initialData.split || 1,
+        details: initialData.details || '',
+        isPaid: initialData.isPaid || false
+      });
+    } else {
+      setFormData({
+        date: defaultDate,
+        text: '',
+        krw: currentAmountKRW,
+        payer: '',
+        split: 1,
+        details: '',
+        isPaid: false
+      });
+    }
+  }, [initialData, isOpen, currentAmountKRW, defaultDate]);
+
+  if (!isOpen) return null;
+
+  const avgKRW = Math.round(formData.krw / (formData.split || 1));
+  const avgTWD = Math.round((formData.krw * 0.024) / (formData.split || 1));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[60] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-[#bfb5a2] rounded-3xl p-8 shadow-2xl space-y-5 border border-[#7e6d5f]/20 max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex justify-between items-center border-b border-[#7e6d5f]/20 pb-2">
+          <h3 className="text-2xl font-black text-[#3C2F2F] tracking-tighter uppercase">{initialData ? '編輯收支項目' : '記下這筆收支'}</h3>
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] font-black uppercase tracking-widest ${formData.isPaid ? 'text-green-700' : 'text-red-700'}`}>{formData.isPaid ? '已結清' : '未付清'}</span>
+            <button onClick={() => setFormData({...formData, isPaid: !formData.isPaid})} className={`w-10 h-6 rounded-full transition-colors relative flex items-center px-1 ${formData.isPaid ? 'bg-green-700' : 'bg-gray-400'}`}>
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${formData.isPaid ? 'translate-x-4' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><CalendarDays size={12} /> 日期</label>
+              <select className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-sm font-bold text-[#3C2F2F] outline-none" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})}>
+                {availableDates.map(d => <option key={d.full} value={d.full}>{d.month}/{d.day} ({d.week})</option>)}
+              </select>
+            </div>
+            <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><User size={12} /> 付款人</label><input type="text" placeholder="誰付的錢？" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-sm font-bold text-[#3C2F2F] outline-none" value={formData.payer} onChange={(e) => setFormData({...formData, payer: e.target.value})} /></div>
+          </div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest">收支標題</label><input type="text" className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-4 text-xl font-bold text-[#3C2F2F] outline-none" value={formData.text} onChange={(e) => setFormData({...formData, text: e.target.value})} placeholder="例如：晚餐、計程車..." /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-[#7e6d5f]/10 rounded-xl p-4"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest block mb-1">總金額 (KRW)</label><div className="text-xl font-black text-[#3C2F2F]">{formData.krw.toLocaleString()} ₩</div></div>
+            <div className="bg-[#7e6d5f]/5 border border-[#7e6d5f]/20 rounded-xl p-3"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1 mb-1"><Users size={12} /> 分攤人數</label><input type="number" min="1" className="w-full bg-transparent text-xl font-black text-[#3C2F2F] outline-none" value={formData.split} onChange={(e) => setFormData({...formData, split: parseInt(e.target.value) || 1})} /></div>
+          </div>
+          {formData.split > 1 && (
+            <div className="bg-[#7e6d5f] text-white rounded-2xl p-4 shadow-inner">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-70 mb-1">平均一人負擔 (Average)</p>
+              <div className="flex justify-between items-end"><span className="text-2xl font-black">{avgKRW.toLocaleString()} ₩</span><span className="text-sm font-bold opacity-80">≈ NT$ {avgTWD.toLocaleString()}</span></div>
+            </div>
+          )}
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest flex items-center gap-1"><FileText size={12} /> 詳細明細 (誰吃了多少、給錢了嗎)</label><textarea rows="3" placeholder="例如：小美吃比較多、小明已給..." className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-3 text-sm font-bold text-[#3C2F2F] outline-none resize-none" value={formData.details} onChange={(e) => setFormData({...formData, details: e.target.value})} /></div>
+        </div>
+        <div className="pt-2 space-y-3">
+          <button onClick={() => onSave(formData.text, formData.krw, formData.date, formData.payer, formData.split, formData.details, formData.isPaid)} className="w-full py-4 bg-[#7e6d5f] text-white rounded-2xl font-black text-lg shadow-lg">確認紀錄</button>
+          {initialData && <button onClick={() => onDelete(initialData.id)} className="w-full py-2 text-[#7e6d5f] font-bold text-xs flex items-center justify-center gap-1 opacity-60"> <Trash2 size={12} /> 刪除紀錄</button>}
+          <button onClick={onClose} className="w-full py-2 text-[#7e6d5f] font-bold text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 子組件：圖片編輯彈窗 ---
+const EditPhotoModal = ({ isOpen, onClose, onSave, onDelete, initialData }) => {
+  const [url, setUrl] = useState('');
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    if (initialData) { setUrl(initialData.url); setNote(initialData.note); }
+    else { setUrl(''); setNote(''); }
+  }, [initialData, isOpen]);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[60] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-[#bfb5a2] rounded-3xl p-8 shadow-2xl space-y-5 border border-[#7e6d5f]/20">
+        <h3 className="text-2xl font-black text-[#3C2F2F] tracking-tighter uppercase border-b border-[#7e6d5f]/20 pb-2">{initialData ? '編輯相片資訊' : '新增旅遊相片'}</h3>
+        <div className="space-y-4">
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest">圖片網址</label><input type="text" className="w-full bg-[#7e6d5f]/10 rounded-xl p-3 text-lg font-bold outline-none" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." /></div>
+          <div className="space-y-1"><label className="text-[10px] font-black text-[#7e6d5f] uppercase tracking-widest">備註描述</label><input type="text" className="w-full bg-[#7e6d5f]/10 rounded-xl p-3 text-lg font-bold outline-none" value={note} onChange={(e) => setNote(e.target.value)} placeholder="給這張照片一兩句話..." /></div>
+        </div>
+        <div className="pt-4 space-y-3">
+          <button onClick={() => onSave({ url, note })} className="w-full py-4 bg-[#7e6d5f] text-white rounded-2xl font-black text-lg shadow-lg">確認保存</button>
+          {initialData && <button onClick={() => onDelete(initialData.id)} className="w-full py-2 text-[#7e6d5f] font-bold text-xs flex items-center justify-center gap-1 opacity-60"><Trash2 size={12} /> 刪除相片</button>}
+          <button onClick={onClose} className="w-full py-2 text-[#7e6d5f] font-bold text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 子組件：通用清單編輯彈窗 ---
+const EditListItemModal = ({ isOpen, onClose, onSave, onDelete, initialData, title }) => {
+  const [text, setText] = useState('');
+  useEffect(() => { setText(initialData ? initialData.text : ''); }, [initialData, isOpen]);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[60] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-[#bfb5a2] rounded-3xl p-8 shadow-2xl space-y-6 border border-[#7e6d5f]/20">
+        <h3 className="text-2xl font-black text-[#3C2F2F] tracking-tighter uppercase border-b border-[#7e6d5f]/20 pb-2">{initialData ? `編輯${title}` : `新增${title}`}</h3>
+        <input type="text" autoFocus className="w-full bg-[#7e6d5f]/10 border-none rounded-xl p-4 text-xl font-bold text-[#3C2F2F] outline-none" value={text} onChange={(e) => setText(e.target.value)} placeholder="輸入名稱..." />
+        <div className="pt-2 space-y-3">
+          <button onClick={() => onSave(text)} className="w-full py-4 bg-[#7e6d5f] text-white rounded-2xl font-black text-lg shadow-lg">確定完成</button>
+          {initialData && <button onClick={() => onDelete(initialData.id)} className="w-full py-2 text-[#7e6d5f] font-bold text-xs flex items-center justify-center gap-1 opacity-60"><Trash2 size={12} /> 刪除項目</button>}
+          <button onClick={onClose} className="w-full py-2 text-[#7e6d5f] font-bold text-sm">取消</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- 旅程日期設定 ---
+const TripSettingsModal = ({ isOpen, onClose, startDate, duration, onSave }) => {
+  const [newDate, setNewDate] = useState(startDate);
+  const [newDuration, setNewDuration] = useState(duration);
+  useEffect(() => { setNewDate(startDate); setNewDuration(duration); }, [startDate, duration, isOpen]);
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-md z-[60] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="w-full max-w-md bg-[#bfb5a2] rounded-3xl p-8 shadow-2xl space-y-6">
+        <h3 className="text-2xl font-black text-[#3C2F2F] tracking-tighter uppercase border-b border-[#7e6d5f]/20 pb-2">基礎設定</h3>
+        <input type="date" className="w-full bg-[#7e6d5f]/10 rounded-xl p-3 text-lg font-bold outline-none" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+        <input type="number" className="w-full bg-[#7e6d5f]/10 rounded-xl p-3 text-lg font-bold outline-none" value={newDuration} onChange={(e) => setNewDuration(parseInt(e.target.value) || 1)} />
+        <div className="flex gap-3 pt-2">
+          <button onClick={onClose} className="flex-1 py-3 font-bold text-[#7e6d5f]">取消</button>
+          <button onClick={() => onSave(newDate, newDuration)} className="flex-[2] py-3 bg-[#7e6d5f] text-white rounded-xl font-black shadow-lg">更新</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const GlobalCalculator = ({ isOpen, onClose }) => {
+  const [input, setInput] = useState('');
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end animate-in fade-in slide-in-from-bottom-10 duration-300">
+      <div className="w-full bg-[#bfb5a2] rounded-t-3xl p-6 shadow-2xl">
+        <div className="flex justify-between items-center mb-6 border-b border-[#7e6d5f]/20 pb-2"><h3 className="text-[#3C2F2F] font-black text-xl uppercase tracking-tighter">匯率換算</h3><button onClick={onClose} className="p-2 bg-[#7e6d5f] rounded-full text-white"><X size={20} /></button></div>
+        <div className="space-y-4">
+          <div className="bg-[#7e6d5f]/10 p-4 rounded-xl"><input type="number" className="w-full bg-transparent text-3xl font-black outline-none" value={input} onChange={(e) => setInput(e.target.value)} placeholder="0 ₩"/></div>
+          <div className="bg-[#7e6d5f] p-4 rounded-xl text-white font-black text-3xl">≈ {(Number(input) * 0.024).toFixed(2)} NT$</div>
+        </div>
+        <button onClick={onClose} className="w-full mt-6 py-4 bg-[#7e6d5f] text-white font-black text-lg rounded-xl shadow-lg">確認關閉</button>
+      </div>
+    </div>
+  );
+};
+
+const App = () => {
+  const [currentPage, setCurrentPage] = useState('home');
+  const [showFloatingCalc, setShowFloatingCalc] = useState(false);
+  const [krwAmount, setKrwAmount] = useState('');
+  
+  // 規劃表核心狀態
+  const [startDate, setStartDate] = useState(INITIAL_START_DATE);
+  const [tripDuration, setTripDuration] = useState(INITIAL_DURATION);
+  const [dates, setDates] = useState(generateDateList(INITIAL_START_DATE, INITIAL_DURATION));
+  const [selectedDate, setSelectedDate] = useState(INITIAL_START_DATE);
+  
+  const [itineraryItems, setItineraryItems] = useState(INITIAL_ITINERARY);
+  const [budgetItems, setBudgetItems] = useState(INITIAL_BUDGET);
+  const [luggageItems, setLuggageItems] = useState([{ id: 1, text: '護照', checked: true }]);
+  const [mustBuyItems, setMustBuyItems] = useState([{ id: 1, text: '聖水洞衣服', checked: false }]);
+  const [photoGallery, setPhotoGallery] = useState(INITIAL_PHOTOS);
+
+  // 彈窗狀態
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isTripSettingsOpen, setIsTripSettingsOpen] = useState(false);
+  const [isListItemModalOpen, setIsListItemModalOpen] = useState(false);
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  
+  const [editingItem, setEditingItem] = useState(null);
+  const [editingListItem, setEditingListItem] = useState(null);
+  const [editingBudgetItem, setEditingBudgetItem] = useState(null);
+  const [editingPhoto, setEditingPhoto] = useState(null);
+
+  const toggleCheck = (id, listType) => {
+    const setter = (listType === 'luggage') ? setLuggageItems : setMustBuyItems;
+    setter(prev => prev.map(item => item.id === id ? { ...item, checked: !item.checked } : item));
+  };
+
+  const handleUpdateTripSettings = (newDate, newDuration) => {
+    setStartDate(newDate); setTripDuration(newDuration);
+    const newList = generateDateList(newDate, newDuration);
+    setDates(newList);
+    if (!newList.find(d => d.full === selectedDate)) setSelectedDate(newList[0].full);
+    setIsTripSettingsOpen(false);
+  };
+
+  const handleSaveItinerary = (data) => {
+    if (data.id) setItineraryItems(prev => prev.map(item => item.id === data.id ? data : item).sort((a, b) => a.time.localeCompare(b.time)));
+    else setItineraryItems(prev => [...prev, { ...data, id: Date.now() }].sort((a, b) => a.time.localeCompare(b.time)));
+    setIsEditModalOpen(false); setEditingItem(null);
+  };
+
+  const handleSaveListItem = (text) => {
+    if (!text) return;
+    const setter = (currentPage === 'luggage') ? setLuggageItems : setMustBuyItems;
+    if (editingListItem) setter(prev => prev.map(item => item.id === editingListItem.id ? { ...item, text } : item));
+    else setter(prev => [...prev, { id: Date.now(), text, checked: false }]);
+    setIsListItemModalOpen(false); setEditingListItem(null);
+  };
+
+  const handleSaveBudget = (text, krw, date, payer, split, details, isPaid) => {
+    if (!text) return;
+    const twd = Math.round(krw * 0.024);
+    const splitCount = split || 1;
+    if (editingBudgetItem) {
+      setBudgetItems(prev => prev.map(item => item.id === editingBudgetItem.id ? { ...item, text, krw, twd, date, payer, split: splitCount, details, isPaid } : item));
+    } else {
+      setBudgetItems(prev => [{ id: Date.now(), text, krw, twd, date, payer, split: splitCount, details, isPaid }, ...prev]);
+      setKrwAmount('');
+    }
+    setIsBudgetModalOpen(false); setEditingBudgetItem(null);
+  };
+
+  const handleSavePhoto = (data) => {
+    if (!data.url) return;
+    if (editingPhoto) setPhotoGallery(prev => prev.map(p => p.id === editingPhoto.id ? { ...p, ...data } : p));
+    else setPhotoGallery(prev => [...prev, { ...data, id: Date.now() }]);
+    setIsPhotoModalOpen(false); setEditingPhoto(null);
+  };
+
+  const handleDeletePhoto = (id) => {
+    setPhotoGallery(prev => prev.filter(p => p.id !== id));
+    setIsPhotoModalOpen(false); setEditingPhoto(null);
+  };
+
+  const totalTWD = budgetItems.reduce((acc, curr) => acc + curr.twd, 0);
+  const filteredItinerary = itineraryItems.filter(item => item.date === selectedDate);
+  const currentCalcResult = safeEvaluate(krwAmount);
+
+  const renderContent = () => {
+    switch (currentPage) {
+      case 'home':
+        return (
+          <div className="space-y-4 animate-in fade-in duration-500">
+            <div onClick={() => setCurrentPage('itinerary')} className="bg-[#7e6d5f] text-white p-8 rounded-[2rem] flex flex-col justify-between aspect-[1.8/1] shadow-2xl cursor-pointer relative overflow-hidden group border border-white/10">
+              <div className="z-10">
+                <div className="flex items-center gap-2 mb-2"><Layout size={16} className="opacity-70" /><span className="text-[10px] opacity-70 tracking-[0.3em] font-black uppercase">Active Planner</span></div>
+                <h2 className="text-6xl font-black tracking-tighter leading-none mb-4">SEOUL</h2>
+                <div className="bg-white/20 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black"><Calendar size={12} /><span>{startDate.replace(/-/g, '/')} - {tripDuration} DAYS</span></div>
+              </div>
+              <div className="absolute right-8 bottom-8 z-10 text-right"><p className="text-sm font-black opacity-60 uppercase tracking-widest">Total Expense</p><p className="text-3xl font-black tracking-tighter">NT$ {totalTWD.toLocaleString()}</p></div>
+              <div className="absolute -left-10 -bottom-10 text-[14rem] font-black text-white/5 pointer-events-none rotate-12">01</div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div onClick={() => setCurrentPage('budget')} className="bg-white/40 p-6 rounded-3xl cursor-pointer flex flex-col gap-4 shadow-sm active:scale-95 transition-all"><Wallet size={24} className="text-[#7e6d5f]" /><h3 className="text-xl font-black text-[#3C2F2F]">支出預算</h3></div>
+              <div onClick={() => setCurrentPage('luggage')} className="bg-white/40 p-6 rounded-3xl cursor-pointer flex flex-col gap-4 shadow-sm active:scale-95 transition-all"><Briefcase size={24} className="text-[#7e6d5f]" /><h3 className="text-xl font-black text-[#3C2F2F]">裝備清單</h3></div>
+              <div onClick={() => setCurrentPage('mustBuy')} className="bg-white/40 p-6 rounded-3xl cursor-pointer flex flex-col gap-4 shadow-sm active:scale-95 transition-all"><ShoppingBag size={24} className="text-[#7e6d5f]" /><h3 className="text-xl font-black text-[#3C2F2F]">採購項目</h3></div>
+              <div onClick={() => setCurrentPage('gallery')} className="bg-white/40 rounded-3xl relative overflow-hidden group shadow-sm cursor-pointer active:scale-95 transition-all">
+                <div className="absolute inset-0 z-10 bg-black/20"></div>
+                {photoGallery.length > 0 ? (
+                  <img src={photoGallery[0].url} className="w-full h-full object-cover" alt="Travel"/>
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[#7e6d5f] opacity-40"><Camera size={32} /></div>
+                )}
+                <div className="absolute bottom-4 left-4 z-20 text-white font-black text-sm flex items-center gap-1"><Camera size={14} /> 旅途相簿</div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'gallery':
+        return (
+          <div className="animate-in fade-in slide-in-from-right-10 duration-300">
+            <button onClick={() => setCurrentPage('home')} className="mb-8 flex items-center text-[#3C2F2F] font-black"><ChevronLeft size={28} /> <span className="text-lg uppercase ml-2 tracking-widest">旅途相簿 GALLERY</span></button>
+            <div className="grid grid-cols-2 gap-4 pb-36">
+              {photoGallery.map(photo => (
+                <div key={photo.id} className="relative aspect-square rounded-2xl overflow-hidden border-2 border-white/40 group shadow-md" onClick={() => { setEditingPhoto(photo); setIsPhotoModalOpen(true); }}>
+                  <img src={photo.url} className="w-full h-full object-cover" alt={photo.note} />
+                  <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent text-[10px] text-white font-bold truncate">{photo.note}</div>
+                </div>
+              ))}
+              <div onClick={() => { setEditingPhoto(null); setIsPhotoModalOpen(true); }} className="aspect-square rounded-2xl border-4 border-dashed border-[#7e6d5f]/40 flex flex-col items-center justify-center text-[#7e6d5f] active:scale-95 transition-all cursor-pointer"><Plus size={32} /><span className="text-xs font-black mt-2">新增圖片</span></div>
+            </div>
+          </div>
+        );
+
+      case 'itinerary':
+        return (
+          <div className="animate-in fade-in slide-in-from-right-10 duration-300">
+            <div className="flex justify-between items-center mb-6 border-b border-[#7e6d5f]/20 pb-4"><button onClick={() => setCurrentPage('home')} className="flex items-center text-[#3C2F2F] font-black"><ChevronLeft size={28} /> <span className="text-lg uppercase ml-2 tracking-widest">行程規劃 ITINERARY</span></button><button onClick={() => setIsTripSettingsOpen(true)} className="p-2 bg-[#7e6d5f] text-white rounded-lg"><Settings size={18} /></button></div>
+            <div className="flex overflow-x-auto gap-3 pb-6 scrollbar-hide">{dates.map((date, idx) => (
+              <div key={idx} onClick={() => setSelectedDate(date.full)} className={`flex-shrink-0 w-16 h-24 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer border-2 ${selectedDate === date.full ? 'bg-[#7e6d5f] border-[#7e6d5f] text-white shadow-lg' : 'bg-white/30 border-transparent text-[#7e6d5f]'}`}>
+                <span className="text-[10px] font-black mb-1 opacity-70">{date.week}</span><span className="text-3xl font-black">{date.day}</span><span className="text-[9px] font-black opacity-60 uppercase">{date.month}月</span>
+              </div>
+            ))}</div>
+            <div className="relative pl-6 mt-4 min-h-[400px]">
+              <div className="absolute left-[31px] top-0 bottom-0 w-1 bg-[#7e6d5f] rounded-full opacity-20"></div>
+              {filteredItinerary.map(item => (
+                <div key={item.id} className="flex gap-6 relative group mb-8">
+                  <div className="w-4 h-4 bg-[#7e6d5f] border-4 border-[#bfb5a2] rounded-full z-10 mt-2"></div>
+                  <div className="flex-1 bg-white/50 backdrop-blur-sm p-5 rounded-2xl border-l-[8px] border-[#7e6d5f] shadow-sm relative group/card">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-2xl font-black text-[#7e6d5f]">{item.time}</span>
+                      <div className="flex items-center gap-2">
+                        {item.link && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open(ensureAbsoluteUrl(item.link), '_blank', 'noopener,noreferrer');
+                            }} 
+                            className="p-1.5 bg-[#7e6d5f] text-white rounded-lg flex items-center gap-1 text-[10px] font-black hover:scale-105 transition-transform"
+                          >
+                            <ExternalLink size={12} /> 開啟連結
+                          </button>
+                        )}
+                        <button onClick={() => { setEditingItem(item); setIsEditModalOpen(true); }} className="p-1.5 text-[#7e6d5f] hover:bg-[#7e6d5f] hover:text-white rounded-lg transition-all"><Edit2 size={14} /></button>
+                      </div>
+                    </div>
+                    <h4 className="text-2xl font-black text-[#3C2F2F] mb-1 leading-tight">{item.title}</h4>
+                    <div className="flex items-center text-xs font-bold text-[#7e6d5f]/80 mb-3"><MapPin size={14} className="mr-1.5" /> {item.location}</div>
+                    {item.note && (
+                      <div className="bg-[#7e6d5f]/5 border-l-2 border-[#7e6d5f]/30 p-3 rounded-lg flex gap-2 items-start">
+                        <FileText size={14} className="text-[#7e6d5f]/50 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs font-bold text-[#7e6d5f] leading-relaxed italic">{item.note}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      case 'budget':
+        return (
+          <div className="h-full flex flex-col animate-in fade-in slide-in-from-right-10 duration-300">
+            <button onClick={() => setCurrentPage('home')} className="mb-6 flex items-center text-[#3C2F2F] font-black"><ChevronLeft size={28} /> <span className="text-lg ml-2 uppercase tracking-widest">支出預算 BUDGET</span></button>
+            <div className="bg-[#7e6d5f] rounded-[2.5rem] p-8 text-white shadow-2xl mb-6 border border-white/10 relative overflow-hidden">
+              <div className="mb-4"><span className="text-[10px] opacity-60 uppercase font-black tracking-widest">算盤 Expression</span><span className="text-4xl font-black block tracking-tighter truncate min-h-[40px]">{krwAmount || '0'}</span></div>
+              <div className="pt-4 border-t border-white/20 flex justify-between items-end">
+                <div><span className="text-[10px] opacity-60 uppercase font-black tracking-widest">TWD 預覽</span><span className="text-3xl font-black block tracking-tighter">≈ {(currentCalcResult * 0.024).toLocaleString()}</span></div>
+                <div className="text-right"><span className="text-[10px] opacity-60 uppercase font-black tracking-widest">KRW Result</span><span className="text-xl font-black block">{currentCalcResult.toLocaleString()} ₩</span></div>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-2.5 mb-8">
+              <button onClick={() => setKrwAmount('')} className="h-14 text-lg font-black rounded-xl bg-[#7e6d5f] text-white active:scale-95 transition-all">AC</button>
+              <button onClick={() => setKrwAmount(prev => prev.slice(0, -1))} className="h-14 rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all flex items-center justify-center"><Delete size={20}/></button>
+              <button onClick={() => setKrwAmount(prev => prev + '/')} className="h-14 rounded-xl bg-[#7e6d5f]/20 text-[#7e6d5f] active:scale-95 transition-all flex items-center justify-center"><Divide size={20}/></button>
+              <button onClick={() => setKrwAmount(prev => prev + '*')} className="h-14 rounded-xl bg-[#7e6d5f]/20 text-[#7e6d5f] active:scale-95 transition-all flex items-center justify-center"><X size={18}/></button>
+              {[7, 8, 9].map(num => (
+                <button key={num} onClick={() => setKrwAmount(prev => prev + num)} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">{num}</button>
+              ))}
+              <button onClick={() => setKrwAmount(prev => prev + '-')} className="h-14 rounded-xl bg-[#7e6d5f]/20 text-[#7e6d5f] active:scale-95 transition-all flex items-center justify-center"><Minus size={20}/></button>
+              {[4, 5, 6].map(num => (
+                <button key={num} onClick={() => setKrwAmount(prev => prev + num)} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">{num}</button>
+              ))}
+              <button onClick={() => setKrwAmount(prev => prev + '+')} className="h-14 rounded-xl bg-[#7e6d5f]/20 text-[#7e6d5f] active:scale-95 transition-all flex items-center justify-center"><Plus size={20}/></button>
+              {[1, 2, 3].map(num => (
+                <button key={num} onClick={() => setKrwAmount(prev => prev + num)} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">{num}</button>
+              ))}
+              <button onClick={() => setKrwAmount(prev => prev + '.')} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">.</button>
+              <button onClick={() => setKrwAmount(prev => prev + '00')} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">00</button>
+              <button onClick={() => setKrwAmount(prev => prev + '0')} className="h-14 text-xl font-black rounded-xl bg-white/60 text-[#7e6d5f] active:scale-95 transition-all">0</button>
+              <button onClick={() => setKrwAmount(currentCalcResult.toString())} className="col-span-2 h-14 text-lg font-black rounded-xl bg-[#7e6d5f] text-white active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg"><Equal size={20}/> 結算</button>
+            </div>
+            <div className="flex-1 overflow-y-auto scrollbar-hide pb-32 px-1">
+              <h3 className="text-xl font-black text-[#3C2F2F] mb-4 flex justify-between items-center">開支紀錄 <span>NT$ {totalTWD.toLocaleString()}</span></h3>
+              <div className="space-y-4">
+                {budgetItems.map(item => (
+                  <div key={item.id} className="bg-white/40 p-5 rounded-2xl flex flex-col gap-3 border-l-4 border-[#7e6d5f] shadow-sm group relative">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-black bg-[#7e6d5f] text-white px-2 py-0.5 rounded-full">{item.date?.split('-').slice(1).join('/')}</span>
+                          <p className="text-lg font-black text-[#3C2F2F] leading-none">{item.text}</p>
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${item.isPaid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {item.isPaid ? <CheckCircle size={10} /> : <AlertCircle size={10} />}
+                            {item.isPaid ? '已結清' : '待結帳'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 mt-2">
+                           <div className="flex items-center gap-2">
+                             <span className="text-[10px] font-black text-white bg-[#3C2F2F]/60 px-2 py-0.5 rounded-md flex items-center gap-1"><User size={10} /> 付款: {item.payer || '未註記'}</span>
+                             {item.split > 1 && (<span className="text-[10px] font-black text-[#7e6d5f] bg-[#7e6d5f]/10 px-2 py-0.5 rounded-md flex items-center gap-1"><Users size={10} /> {item.split} 人分攤</span>)}
+                           </div>
+                           {item.details && (<p className="text-[11px] font-bold text-[#7e6d5f]/80 mt-1 italic border-l-2 border-[#7e6d5f]/20 pl-2">{item.details}</p>)}
+                        </div>
+                      </div>
+                      <div className="text-right"><p className="text-xl font-black text-[#7e6d5f]">NT$ {item.twd.toLocaleString()}</p><p className="text-[10px] font-bold text-[#7e6d5f]/60">{item.krw.toLocaleString()} ₩</p></div>
+                    </div>
+                    {item.split > 1 && (
+                      <div className="pt-2 mt-1 border-t border-[#7e6d5f]/10 flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-[#7e6d5f]/60 italic uppercase tracking-widest">Average Per Person</span>
+                        <span className="text-sm font-black text-[#3C2F2F]">NT$ {Math.round(item.twd / item.split).toLocaleString()} / {Math.round(item.krw / item.split).toLocaleString()} ₩</span>
+                      </div>
+                    )}
+                    <button onClick={() => { setEditingBudgetItem(item); setIsBudgetModalOpen(true); }} className="absolute bottom-4 right-4 p-1 text-[#7e6d5f] opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 size={16} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'luggage':
+      case 'mustBuy':
+        const isLuggage = currentPage === 'luggage';
+        const items = isLuggage ? luggageItems : mustBuyItems;
+        return (
+          <div className="animate-in fade-in slide-in-from-right-10 duration-300">
+            <button onClick={() => setCurrentPage('home')} className="mb-8 flex items-center text-[#3C2F2F] font-black"><ChevronLeft size={28} /> <span className="text-lg uppercase ml-2 tracking-widest">{isLuggage ? '裝備規劃 PACKING' : '採購清單 MUST BUY'}</span></button>
+            <div className="space-y-4 pb-36">
+              {items.map(item => (
+                <div key={item.id} className={`p-6 rounded-2xl flex items-center gap-5 transition-all border-2 group ${item.checked ? 'bg-[#7e6d5f]/10 border-[#7e6d5f]/20' : 'bg-white/50 border-transparent shadow-sm hover:bg-white'}`}>
+                  <div onClick={() => toggleCheck(item.id, isLuggage ? 'luggage' : 'mustBuy')} className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all cursor-pointer ${item.checked ? 'bg-[#7e6d5f] border-[#7e6d5f]' : 'border-[#7e6d5f]/30'}`}>{item.checked && <CheckCircle2 size={20} className="text-white" />}</div>
+                  <span className={`text-2xl font-black tracking-tight flex-1 ${item.checked ? 'line-through text-[#7e6d5f]/40' : 'text-[#3C2F2F]'}`}>{item.text}</span>
+                  <button onClick={() => { setEditingListItem(item); setIsListItemModalOpen(true); }} className="p-2 text-[#7e6d5f] opacity-20 group-hover:opacity-100 transition-opacity"><Edit2 size={18} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen font-sans p-6 text-[#3C2F2F] relative select-none" style={{ backgroundColor: COLORS.bg }}>
+      <header className="flex justify-between items-center mb-10 pt-4 border-b-2 border-[#7e6d5f]/10 pb-6">
+        <div><h1 className="text-3xl font-black tracking-tighter uppercase leading-none">旅遊規劃表</h1><p className="text-[9px] font-black tracking-[0.5em] opacity-40 mt-1 uppercase">Travel Planning Table</p></div>
+        <div className="w-12 h-12 bg-[#7e6d5f] rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg border border-white/20">P</div>
+      </header>
+
+      <main className="pb-24 max-w-2xl mx-auto">{renderContent()}</main>
+
+      {currentPage !== 'home' && (
+        <div className="fixed bottom-8 left-6 right-6 z-30 max-w-xl mx-auto">
+          <button onClick={() => {
+            if (currentPage === 'itinerary') { setEditingItem({ date: selectedDate, time: '12:00', title: '', location: '', link: '', note: '' }); setIsEditModalOpen(true); }
+            else if (currentPage === 'budget') { if (!krwAmount) return; setEditingBudgetItem(null); setIsBudgetModalOpen(true); }
+            else if (currentPage === 'gallery') { setEditingPhoto(null); setIsPhotoModalOpen(true); }
+            else { setEditingListItem(null); setIsListItemModalOpen(true); }
+          }} className="w-full py-5 bg-[#7e6d5f] text-white rounded-2xl shadow-2xl flex items-center justify-center gap-3 active:scale-95 transition-all border border-white/10 uppercase font-black tracking-widest">
+            <Plus size={22} strokeWidth={4} /><span>{currentPage === 'gallery' ? '新增相片' : currentPage === 'budget' ? '確認本筆收支' : '新增規劃項目'}</span>
+          </button>
+        </div>
+      )}
+
+      {currentPage !== 'budget' && (
+        <button onClick={() => setShowFloatingCalc(true)} className="fixed bottom-8 right-6 w-16 h-16 bg-[#7e6d5f] text-white rounded-full shadow-2xl flex items-center justify-center z-40 border border-white/20 active:rotate-6 transition-all"><Calculator size={28} /></button>
+      )}
+
+      <GlobalCalculator isOpen={showFloatingCalc} onClose={() => setShowFloatingCalc(false)} />
+      <EditItemModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} onSave={handleSaveItinerary} onDelete={(id) => setItineraryItems(prev => prev.filter(i => i.id !== id))} initialData={editingItem} availableDates={dates} />
+      <EditListItemModal isOpen={isListItemModalOpen} onClose={() => setIsListItemModalOpen(false)} onSave={handleSaveListItem} onDelete={(id) => { const s = currentPage === 'luggage' ? setLuggageItems : setMustBuyItems; s(prev => prev.filter(i => i.id !== id)); setIsListItemModalOpen(false); }} initialData={editingListItem} title={currentPage === 'luggage' ? '裝備' : '採購'} />
+      <EditBudgetModal isOpen={isBudgetModalOpen} onClose={() => setIsBudgetModalOpen(false)} onSave={handleSaveBudget} onDelete={(id) => setBudgetItems(prev => prev.filter(i => i.id !== id))} initialData={editingBudgetItem} currentAmountKRW={currentCalcResult} availableDates={dates} defaultDate={selectedDate} />
+      <EditPhotoModal isOpen={isPhotoModalOpen} onClose={() => setIsPhotoModalOpen(false)} onSave={handleSavePhoto} onDelete={handleDeletePhoto} initialData={editingPhoto} />
+      <TripSettingsModal isOpen={isTripSettingsOpen} onClose={() => setIsTripSettingsOpen(false)} startDate={startDate} duration={tripDuration} onSave={handleUpdateTripSettings} />
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800;900&display=swap');
+        body { font-family: 'Montserrat', sans-serif; overflow-x: hidden; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}} />
+    </div>
+  );
+};
+
+export default App;
